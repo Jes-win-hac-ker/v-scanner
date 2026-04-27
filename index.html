@@ -5,35 +5,113 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>Voucher Scanner</title>
+    <title>V-Scanner</title>
     <link rel="manifest" href="manifest.json">
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
     <style>
-        :root { --primary: #007aff; --success: #34c759; --bg: #f2f2f7; }
-        body { font-family: -apple-system, system-ui, sans-serif; margin: 0; background: var(--bg); height: 100vh; display: flex; flex-direction: column; overflow: hidden; user-select: none; }
+        :root { --primary: #007aff; --success: #34c759; --bg: #f2f2f7; --header-h: 35vh; }
         
-        #scanner-vane { position: relative; height: 40vh; background: #000; overflow: hidden; }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        
+        body { 
+            font-family: -apple-system, system-ui, sans-serif; 
+            margin: 0; 
+            background: var(--bg); 
+            height: 100vh; 
+            width: 100vw;
+            display: flex; 
+            flex-direction: column; 
+            overflow: hidden; /* Keeps the main screen from moving */
+        }
+
+        /* 1. FIXED CAMERA TOP */
+        #scanner-vane { 
+            position: relative; 
+            height: var(--header-h); 
+            background: #000; 
+            flex-shrink: 0; /* Prevents camera from shrinking when list grows */
+            z-index: 100;
+        }
+        
         video { width: 100%; height: 100%; object-fit: cover; }
         
-        #scan-region { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 220px; height: 220px; border: 2px solid rgba(255,255,255,0.4); border-radius: 24px; box-shadow: 0 0 0 1000px rgba(0,0,0,0.5); }
-        #scan-region::after { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--primary); box-shadow: 0 0 15px var(--primary); animation: scan 2s linear infinite; }
+        #scan-region { 
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            width: 180px; height: 180px; 
+            border: 2px solid rgba(255,255,255,0.4); 
+            border-radius: 20px; 
+            box-shadow: 0 0 0 1000px rgba(0,0,0,0.5); 
+        }
+        #scan-region::after { 
+            content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; 
+            background: var(--primary); box-shadow: 0 0 15px var(--primary); 
+            animation: scan 2s linear infinite; 
+        }
         @keyframes scan { 0%, 100% { top: 5%; } 50% { top: 95%; } }
 
-        #history-panel { flex: 1; background: white; border-top-left-radius: 25px; border-top-right-radius: 25px; margin-top: -20px; z-index: 10; display: flex; flex-direction: column; padding: 20px; box-shadow: 0 -5px 20px rgba(0,0,0,0.1); padding-bottom: env(safe-area-inset-bottom); }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-        .header h2 { margin: 0; font-size: 1.3rem; }
-        
-        #list { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-        .card { background: #f9f9f9; border-radius: 14px; padding: 14px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #eee; animation: slideIn 0.3s ease; }
-        @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
-        
-        .code { font-family: 'SF Mono', monospace; font-weight: 700; font-size: 1.1rem; color: var(--primary); word-break: break-all; margin-right: 10px; }
-        .code.striked { text-decoration: line-through; color: #8e8e93; font-weight: 400; }
-        
-        .btn-copy { background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 12px; font-weight: bold; font-size: 0.9rem; min-width: 80px; }
-        .btn-copy.done { background: #e5e5ea; color: #8e8e93; }
+        /* 2. SCROLLABLE HISTORY BOTTOM */
+        #history-panel { 
+            flex: 1; 
+            background: white; 
+            border-top-left-radius: 25px; 
+            border-top-right-radius: 25px; 
+            margin-top: -20px; 
+            z-index: 101; 
+            display: flex; 
+            flex-direction: column; 
+            padding: 20px 20px 0 20px;
+            box-shadow: 0 -5px 20px rgba(0,0,0,0.1); 
+            overflow: hidden; /* Panel itself doesn't scroll, inner list does */
+        }
 
-        #toast { position: fixed; top: 30px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); color: white; padding: 12px 24px; border-radius: 25px; font-size: 0.9rem; display: none; z-index: 100; font-weight: 500; }
+        .header { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            padding-bottom: 15px;
+            flex-shrink: 0;
+        }
+        .header h2 { margin: 0; font-size: 1.3rem; }
+        .count-badge { background: #eee; padding: 2px 10px; border-radius: 10px; font-size: 0.8rem; color: #666; font-weight: bold; }
+        
+        #list { 
+            flex: 1; 
+            overflow-y: scroll; /* Independent scrolling for the list */
+            -webkit-overflow-scrolling: touch; 
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+
+        /* Items */
+        .card { 
+            background: #f9f9f9; border-radius: 14px; padding: 12px 15px; 
+            margin-bottom: 10px; display: flex; justify-content: space-between; 
+            align-items: center; border: 1px solid #eee; 
+            animation: slideIn 0.3s ease;
+        }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .code-container { display: flex; flex-direction: column; overflow: hidden; }
+        .code { 
+            font-family: 'SF Mono', monospace; font-weight: 700; font-size: 1.1rem; 
+            color: var(--primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .code.striked { text-decoration: line-through; color: #8e8e93; font-weight: 400; }
+        .timestamp { font-size: 0.7rem; color: #999; margin-top: 2px; }
+        
+        .btn-copy { 
+            background: var(--primary); color: white; border: none; 
+            padding: 10px 18px; border-radius: 10px; font-weight: bold; 
+            font-size: 0.85rem; min-width: 75px; flex-shrink: 0;
+            box-shadow: 0 2px 5px rgba(0,122,255,0.2);
+        }
+        .btn-copy.done { background: #e5e5ea; color: #8e8e93; box-shadow: none; }
+
+        #toast { 
+            position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); 
+            background: rgba(0,0,0,0.85); color: white; padding: 12px 24px; 
+            border-radius: 25px; font-size: 0.9rem; display: none; z-index: 1000; 
+            font-weight: 500; backdrop-filter: blur(10px);
+        }
     </style>
 </head>
 <body>
@@ -47,7 +125,7 @@
 
     <div id="history-panel">
         <div class="header">
-            <h2>Scanned Codes</h2>
+            <h2>History <span id="count" class="count-badge">0</span></h2>
             <span onclick="clearAll()" style="color:#ff3b30; font-size: 0.9rem; font-weight: 600;">Clear All</span>
         </div>
         <div id="list"></div>
@@ -57,6 +135,7 @@
         const video = document.getElementById('video');
         const list = document.getElementById('list');
         const toast = document.getElementById('toast');
+        const countDisplay = document.getElementById('count');
 
         let history = JSON.parse(localStorage.getItem('v-history') || '[]');
         let used = JSON.parse(localStorage.getItem('v-used') || '[]');
@@ -72,13 +151,21 @@
         }
 
         function render() {
-            list.innerHTML = history.length ? history.map(code => `
+            countDisplay.innerText = history.length;
+            if (!history.length) {
+                list.innerHTML = '<div style="text-align:center; color:#8e8e93; margin-top:40px;">No codes scanned yet</div>';
+                return;
+            }
+
+            list.innerHTML = history.slice().reverse().map(code => `
                 <div class="card">
-                    <div class="code ${used.includes(code) ? 'striked' : ''}">${code}</div>
+                    <div class="code-container">
+                        <div class="code ${used.includes(code) ? 'striked' : ''}">${code}</div>
+                    </div>
                     <button class="btn-copy ${used.includes(code) ? 'done' : ''}" 
                             onclick="copy('${code}')">${used.includes(code) ? 'Used' : 'Copy'}</button>
                 </div>
-            `).reverse().join('') : '<div style="text-align:center; color:#8e8e93; margin-top:40px;">No codes scanned yet</div>';
+            `).join('');
         }
 
         function copy(c) {
@@ -91,7 +178,7 @@
 
         function showToast() {
             toast.style.display = 'block';
-            setTimeout(() => toast.style.display = 'none', 1500);
+            setTimeout(() => toast.style.display = 'none', 2000);
         }
 
         function clearAll() {
@@ -105,6 +192,8 @@
             video.srcObject = s; 
             video.play(); 
             requestAnimationFrame(tick); 
+        }).catch(err => {
+            alert("Camera error: " + err.message);
         });
 
         const canvas = document.createElement('canvas');
@@ -122,11 +211,12 @@
                 
                 if (qr) {
                     const code = extract(qr.data);
-                    if (!history.includes(code) && Date.now() - lastScanTime > 2000) {
+                    const now = Date.now();
+                    if (!history.includes(code) && (now - lastScanTime > 2000)) {
                         history.push(code);
                         if (navigator.vibrate) navigator.vibrate(100);
                         save();
-                        lastScanTime = Date.now();
+                        lastScanTime = now;
                     }
                 }
             }
@@ -135,7 +225,6 @@
 
         render();
 
-        // PWA Offline Support
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').catch(() => {});
         }
