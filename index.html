@@ -9,39 +9,34 @@
     <link rel="manifest" href="manifest.json">
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
     <style>
-        :root { --primary: #007aff; --success: #34c759; --bg: #f2f2f7; --header-h: 35vh; }
+        :root { --primary: #007aff; --danger: #ff3b30; --success: #34c759; --bg: #f2f2f7; --header-h: 35vh; }
         
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         
         body { 
             font-family: -apple-system, system-ui, sans-serif; 
-            margin: 0; 
-            background: var(--bg); 
-            height: 100vh; 
-            width: 100vw;
-            display: flex; 
-            flex-direction: column; 
-            overflow: hidden; /* Keeps the main screen from moving */
+            margin: 0; background: var(--bg); height: 100vh; width: 100vw;
+            display: flex; flex-direction: column; overflow: hidden; 
         }
 
         /* 1. FIXED CAMERA TOP */
         #scanner-vane { 
-            position: relative; 
-            height: var(--header-h); 
-            background: #000; 
-            flex-shrink: 0; /* Prevents camera from shrinking when list grows */
-            z-index: 100;
+            position: relative; height: var(--header-h); background: #000; 
+            flex-shrink: 0; z-index: 100;
         }
         
-        video { width: 100%; height: 100%; object-fit: cover; }
+        video { width: 100%; height: 100%; object-fit: cover; transition: opacity 0.3s; }
+        video.off { opacity: 0; }
         
         #scan-region { 
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
             width: 180px; height: 180px; 
-            border: 2px solid rgba(255,255,255,0.4); 
-            border-radius: 20px; 
+            border: 2px solid rgba(255,255,255,0.4); border-radius: 20px; 
             box-shadow: 0 0 0 1000px rgba(0,0,0,0.5); 
+            transition: opacity 0.3s;
         }
+        #scan-region.off { opacity: 0; }
+        
         #scan-region::after { 
             content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; 
             background: var(--primary); box-shadow: 0 0 15px var(--primary); 
@@ -49,68 +44,52 @@
         }
         @keyframes scan { 0%, 100% { top: 5%; } 50% { top: 95%; } }
 
-        /* 2. SCROLLABLE HISTORY BOTTOM */
-        #history-panel { 
-            flex: 1; 
-            background: white; 
-            border-top-left-radius: 25px; 
-            border-top-right-radius: 25px; 
-            margin-top: -20px; 
-            z-index: 101; 
-            display: flex; 
-            flex-direction: column; 
-            padding: 20px 20px 0 20px;
-            box-shadow: 0 -5px 20px rgba(0,0,0,0.1); 
-            overflow: hidden; /* Panel itself doesn't scroll, inner list does */
+        /* Power Toggle Button */
+        .camera-toggle {
+            position: absolute; bottom: 15px; right: 15px;
+            background: rgba(255,255,255,0.25); color: white; border: 1px solid rgba(255,255,255,0.5);
+            padding: 8px 15px; border-radius: 20px; font-size: 0.8rem; font-weight: bold;
+            backdrop-filter: blur(10px); z-index: 200;
+        }
+        .camera-toggle.active { background: var(--danger); border-color: var(--danger); }
+
+        #camera-off-msg {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: #666; font-size: 0.9rem; text-align: center; display: none;
         }
 
-        .header { 
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center; 
-            padding-bottom: 15px;
-            flex-shrink: 0;
+        /* 2. SCROLLABLE HISTORY BOTTOM */
+        #history-panel { 
+            flex: 1; background: white; border-top-left-radius: 25px; border-top-right-radius: 25px; 
+            margin-top: -20px; z-index: 101; display: flex; flex-direction: column; 
+            padding: 20px 20px 0 20px; box-shadow: 0 -5px 20px rgba(0,0,0,0.1); overflow: hidden; 
         }
+
+        .header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 15px; flex-shrink: 0; }
         .header h2 { margin: 0; font-size: 1.3rem; }
         .count-badge { background: #eee; padding: 2px 10px; border-radius: 10px; font-size: 0.8rem; color: #666; font-weight: bold; }
         
-        #list { 
-            flex: 1; 
-            overflow-y: scroll; /* Independent scrolling for the list */
-            -webkit-overflow-scrolling: touch; 
-            padding-bottom: env(safe-area-inset-bottom);
-        }
+        #list { flex: 1; overflow-y: scroll; -webkit-overflow-scrolling: touch; padding-bottom: env(safe-area-inset-bottom); }
 
-        /* Items */
         .card { 
             background: #f9f9f9; border-radius: 14px; padding: 12px 15px; 
             margin-bottom: 10px; display: flex; justify-content: space-between; 
             align-items: center; border: 1px solid #eee; 
-            animation: slideIn 0.3s ease;
         }
-        @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         
-        .code-container { display: flex; flex-direction: column; overflow: hidden; }
-        .code { 
-            font-family: 'SF Mono', monospace; font-weight: 700; font-size: 1.1rem; 
-            color: var(--primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-        }
+        .code { font-family: 'SF Mono', monospace; font-weight: 700; font-size: 1.1rem; color: var(--primary); }
         .code.striked { text-decoration: line-through; color: #8e8e93; font-weight: 400; }
-        .timestamp { font-size: 0.7rem; color: #999; margin-top: 2px; }
         
         .btn-copy { 
             background: var(--primary); color: white; border: none; 
-            padding: 10px 18px; border-radius: 10px; font-weight: bold; 
-            font-size: 0.85rem; min-width: 75px; flex-shrink: 0;
-            box-shadow: 0 2px 5px rgba(0,122,255,0.2);
+            padding: 10px 18px; border-radius: 10px; font-weight: bold; font-size: 0.85rem;
         }
-        .btn-copy.done { background: #e5e5ea; color: #8e8e93; box-shadow: none; }
+        .btn-copy.done { background: #e5e5ea; color: #8e8e93; }
 
         #toast { 
             position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); 
             background: rgba(0,0,0,0.85); color: white; padding: 12px 24px; 
             border-radius: 25px; font-size: 0.9rem; display: none; z-index: 1000; 
-            font-weight: 500; backdrop-filter: blur(10px);
         }
     </style>
 </head>
@@ -121,12 +100,14 @@
     <div id="scanner-vane">
         <video id="video" playsinline></video>
         <div id="scan-region"></div>
+        <div id="camera-off-msg">Camera is Off</div>
+        <button id="toggle-btn" class="camera-toggle" onclick="toggleCamera()">Turn Off</button>
     </div>
 
     <div id="history-panel">
         <div class="header">
             <h2>History <span id="count" class="count-badge">0</span></h2>
-            <span onclick="clearAll()" style="color:#ff3b30; font-size: 0.9rem; font-weight: 600;">Clear All</span>
+            <span onclick="clearAll()" style="color:var(--danger); font-size: 0.9rem; font-weight: 600;">Clear All</span>
         </div>
         <div id="list"></div>
     </div>
@@ -134,15 +115,17 @@
     <script>
         const video = document.getElementById('video');
         const list = document.getElementById('list');
-        const toast = document.getElementById('toast');
         const countDisplay = document.getElementById('count');
+        const toggleBtn = document.getElementById('toggle-btn');
+        const scanRegion = document.getElementById('scan-region');
+        const offMsg = document.getElementById('camera-off-msg');
 
         let history = JSON.parse(localStorage.getItem('v-history') || '[]');
         let used = JSON.parse(localStorage.getItem('v-used') || '[]');
+        let stream = null;
+        let isCameraOn = false;
 
-        function extract(t) {
-            return t.split(/[/=?& _-]/).filter(x => x).pop() || t;
-        }
+        function extract(t) { return t.split(/[/=?& _-]/).filter(x => x).pop() || t; }
 
         function save() {
             localStorage.setItem('v-history', JSON.stringify(history));
@@ -153,15 +136,12 @@
         function render() {
             countDisplay.innerText = history.length;
             if (!history.length) {
-                list.innerHTML = '<div style="text-align:center; color:#8e8e93; margin-top:40px;">No codes scanned yet</div>';
+                list.innerHTML = '<div style="text-align:center; color:#8e8e93; margin-top:40px;">No codes scanned</div>';
                 return;
             }
-
             list.innerHTML = history.slice().reverse().map(code => `
                 <div class="card">
-                    <div class="code-container">
-                        <div class="code ${used.includes(code) ? 'striked' : ''}">${code}</div>
-                    </div>
+                    <div class="code ${used.includes(code) ? 'striked' : ''}">${code}</div>
                     <button class="btn-copy ${used.includes(code) ? 'done' : ''}" 
                             onclick="copy('${code}')">${used.includes(code) ? 'Used' : 'Copy'}</button>
                 </div>
@@ -172,43 +152,62 @@
             navigator.clipboard.writeText(c).then(() => {
                 if (!used.includes(c)) used.push(c);
                 save();
-                showToast();
+                const toast = document.getElementById('toast');
+                toast.style.display = 'block';
+                setTimeout(() => toast.style.display = 'none', 2000);
             });
         }
 
-        function showToast() {
-            toast.style.display = 'block';
-            setTimeout(() => toast.style.display = 'none', 2000);
+        async function startCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } 
+                });
+                video.srcObject = stream;
+                video.play();
+                isCameraOn = true;
+                video.classList.remove('off');
+                scanRegion.classList.remove('off');
+                offMsg.style.display = 'none';
+                toggleBtn.innerText = "Turn Off";
+                toggleBtn.classList.remove('active');
+                requestAnimationFrame(tick);
+            } catch (err) {
+                alert("Camera error: " + err.message);
+            }
         }
 
-        function clearAll() {
-            if(confirm('Delete all history?')) { history = []; used = []; save(); }
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+            }
+            isCameraOn = false;
+            video.classList.add('off');
+            scanRegion.classList.add('off');
+            offMsg.style.display = 'block';
+            toggleBtn.innerText = "Turn On";
+            toggleBtn.classList.add('active');
         }
 
-        // High Speed Camera Init
-        navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } 
-        }).then(s => { 
-            video.srcObject = s; 
-            video.play(); 
-            requestAnimationFrame(tick); 
-        }).catch(err => {
-            alert("Camera error: " + err.message);
-        });
+        function toggleCamera() {
+            if (isCameraOn) stopCamera();
+            else startCamera();
+        }
+
+        function clearAll() { if(confirm('Delete history?')) { history = []; used = []; save(); } }
 
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
         let lastScanTime = 0;
 
         function tick() {
+            if (!isCameraOn) return;
             if (video.readyState === video.HAVE_ENOUGH_DATA) {
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
+                canvas.width = video.videoWidth; canvas.height = video.videoHeight;
                 ctx.drawImage(video, 0, 0);
-                
                 const img = ctx.getImageData(0,0,canvas.width, canvas.height);
                 const qr = jsQR(img.data, img.width, img.height);
-                
                 if (qr) {
                     const code = extract(qr.data);
                     const now = Date.now();
@@ -224,6 +223,7 @@
         }
 
         render();
+        startCamera();
 
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').catch(() => {});
