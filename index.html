@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Voucher Scanner</title>
+    <link rel="manifest" href="manifest.json">
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <style>
+        :root { --primary: #007aff; --success: #34c759; --bg: #f2f2f7; }
+        body { font-family: -apple-system, system-ui, sans-serif; margin: 0; background: var(--bg); height: 100vh; display: flex; flex-direction: column; overflow: hidden; user-select: none; }
+        
+        #scanner-vane { position: relative; height: 40vh; background: #000; overflow: hidden; }
+        video { width: 100%; height: 100%; object-fit: cover; }
+        
+        #scan-region { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 220px; height: 220px; border: 2px solid rgba(255,255,255,0.4); border-radius: 24px; box-shadow: 0 0 0 1000px rgba(0,0,0,0.5); }
+        #scan-region::after { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--primary); box-shadow: 0 0 15px var(--primary); animation: scan 2s linear infinite; }
+        @keyframes scan { 0%, 100% { top: 5%; } 50% { top: 95%; } }
+
+        #history-panel { flex: 1; background: white; border-top-left-radius: 25px; border-top-right-radius: 25px; margin-top: -20px; z-index: 10; display: flex; flex-direction: column; padding: 20px; box-shadow: 0 -5px 20px rgba(0,0,0,0.1); padding-bottom: env(safe-area-inset-bottom); }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .header h2 { margin: 0; font-size: 1.3rem; }
+        
+        #list { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+        .card { background: #f9f9f9; border-radius: 14px; padding: 14px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #eee; animation: slideIn 0.3s ease; }
+        @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+        
+        .code { font-family: 'SF Mono', monospace; font-weight: 700; font-size: 1.1rem; color: var(--primary); word-break: break-all; margin-right: 10px; }
+        .code.striked { text-decoration: line-through; color: #8e8e93; font-weight: 400; }
+        
+        .btn-copy { background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 12px; font-weight: bold; font-size: 0.9rem; min-width: 80px; }
+        .btn-copy.done { background: #e5e5ea; color: #8e8e93; }
+
+        #toast { position: fixed; top: 30px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); color: white; padding: 12px 24px; border-radius: 25px; font-size: 0.9rem; display: none; z-index: 100; font-weight: 500; }
+    </style>
+</head>
+<body>
+
+    <div id="toast">Copied to clipboard</div>
+
+    <div id="scanner-vane">
+        <video id="video" playsinline></video>
+        <div id="scan-region"></div>
+    </div>
+
+    <div id="history-panel">
+        <div class="header">
+            <h2>Scanned Codes</h2>
+            <span onclick="clearAll()" style="color:#ff3b30; font-size: 0.9rem; font-weight: 600;">Clear All</span>
+        </div>
+        <div id="list"></div>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const list = document.getElementById('list');
+        const toast = document.getElementById('toast');
+
+        let history = JSON.parse(localStorage.getItem('v-history') || '[]');
+        let used = JSON.parse(localStorage.getItem('v-used') || '[]');
+
+        function extract(t) {
+            return t.split(/[/=?& _-]/).filter(x => x).pop() || t;
+        }
+
+        function save() {
+            localStorage.setItem('v-history', JSON.stringify(history));
+            localStorage.setItem('v-used', JSON.stringify(used));
+            render();
+        }
+
+        function render() {
+            list.innerHTML = history.length ? history.map(code => `
+                <div class="card">
+                    <div class="code ${used.includes(code) ? 'striked' : ''}">${code}</div>
+                    <button class="btn-copy ${used.includes(code) ? 'done' : ''}" 
+                            onclick="copy('${code}')">${used.includes(code) ? 'Used' : 'Copy'}</button>
+                </div>
+            `).reverse().join('') : '<div style="text-align:center; color:#8e8e93; margin-top:40px;">No codes scanned yet</div>';
+        }
+
+        function copy(c) {
+            navigator.clipboard.writeText(c).then(() => {
+                if (!used.includes(c)) used.push(c);
+                save();
+                showToast();
+            });
+        }
+
+        function showToast() {
+            toast.style.display = 'block';
+            setTimeout(() => toast.style.display = 'none', 1500);
+        }
+
+        function clearAll() {
+            if(confirm('Delete all history?')) { history = []; used = []; save(); }
+        }
+
+        // High Speed Camera Init
+        navigator.mediaDevices.getUserMedia({ 
+            video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } 
+        }).then(s => { 
+            video.srcObject = s; 
+            video.play(); 
+            requestAnimationFrame(tick); 
+        });
+
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        let lastScanTime = 0;
+
+        function tick() {
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                ctx.drawImage(video, 0, 0);
+                
+                const img = ctx.getImageData(0,0,canvas.width, canvas.height);
+                const qr = jsQR(img.data, img.width, img.height);
+                
+                if (qr) {
+                    const code = extract(qr.data);
+                    if (!history.includes(code) && Date.now() - lastScanTime > 2000) {
+                        history.push(code);
+                        if (navigator.vibrate) navigator.vibrate(100);
+                        save();
+                        lastScanTime = Date.now();
+                    }
+                }
+            }
+            requestAnimationFrame(tick);
+        }
+
+        render();
+
+        // PWA Offline Support
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js').catch(() => {});
+        }
+    </script>
+</body>
+</html>
