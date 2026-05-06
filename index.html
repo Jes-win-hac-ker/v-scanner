@@ -40,6 +40,20 @@
         .torch-toggle.active { background: var(--success); border-color: var(--success); }
         .torch-toggle.disabled { opacity: 0.5; pointer-events: none; }
 
+        .zoom-controls {
+            position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+            display: flex; align-items: center; gap: 8px;
+            background: rgba(0,0,0,0.5); border: 1.5px solid rgba(255,255,255,0.6);
+            padding: 6px 10px; border-radius: 18px; z-index: 200;
+            backdrop-filter: blur(10px); box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+        }
+        .zoom-btn {
+            background: transparent; color: #fff; border: none; font-size: 1rem;
+            width: 28px; height: 28px; border-radius: 50%;
+        }
+        .zoom-btn:disabled { opacity: 0.4; }
+        #zoom-range { width: 140px; }
+
         #camera-off-msg { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #fff; font-size: 1.1rem; text-align: center; display: none; font-weight: bold; }
 
         /* SCROLLABLE HISTORY BOTTOM */
@@ -70,6 +84,11 @@
         <div id="camera-off-msg">Camera is Off</div>
         <button id="torch-btn" class="torch-toggle" onclick="toggleTorch()">Flash On</button>
         <button id="toggle-btn" class="camera-toggle" onclick="toggleCamera()">Turn Off</button>
+        <div id="zoom-controls" class="zoom-controls">
+            <button id="zoom-out" class="zoom-btn" onclick="changeZoom(-1)">-</button>
+            <input id="zoom-range" type="range" min="1" max="1" step="0.1" value="1" oninput="setZoomFromRange()">
+            <button id="zoom-in" class="zoom-btn" onclick="changeZoom(1)">+</button>
+        </div>
     </div>
     <div id="history-panel">
         <div class="header">
@@ -87,6 +106,10 @@
         const countDisplay = document.getElementById('count');
         const toggleBtn = document.getElementById('toggle-btn');
         const torchBtn = document.getElementById('torch-btn');
+        const zoomControls = document.getElementById('zoom-controls');
+        const zoomRange = document.getElementById('zoom-range');
+        const zoomInBtn = document.getElementById('zoom-in');
+        const zoomOutBtn = document.getElementById('zoom-out');
         const scanRegion = document.getElementById('scan-region');
         const offMsg = document.getElementById('camera-off-msg');
 
@@ -97,6 +120,11 @@
         let isCameraOn = false;
         let isTorchOn = false;
         let torchAvailable = false;
+        let zoomAvailable = false;
+        let zoomMin = 1;
+        let zoomMax = 1;
+        let zoomStep = 0.1;
+        let zoomValue = 1;
 
         function extract(t) { return t.split(/[/=?& _-]/).filter(x => x).pop() || t; }
         function save() {
@@ -152,6 +180,39 @@
             if (!isCameraOn || !torchAvailable) return;
             await setTorch(!isTorchOn);
         }
+        function clamp(v, min, max) { return Math.min(max, Math.max(min, v)); }
+        function updateZoomUI() {
+            if (!zoomAvailable) {
+                zoomControls.style.display = 'none';
+                return;
+            }
+            zoomControls.style.display = 'flex';
+            zoomRange.min = String(zoomMin);
+            zoomRange.max = String(zoomMax);
+            zoomRange.step = String(zoomStep);
+            zoomRange.value = String(zoomValue);
+            zoomOutBtn.disabled = zoomValue <= zoomMin;
+            zoomInBtn.disabled = zoomValue >= zoomMax;
+        }
+        async function setZoom(value) {
+            if (!videoTrack || !zoomAvailable) return;
+            const next = clamp(value, zoomMin, zoomMax);
+            try {
+                await videoTrack.applyConstraints({ advanced: [{ zoom: next }] });
+                zoomValue = next;
+            } catch (err) {
+                console.warn('Zoom control failed', err);
+            }
+            updateZoomUI();
+        }
+        function changeZoom(delta) {
+            const step = zoomStep || 0.1;
+            setZoom(zoomValue + delta * step);
+        }
+        function setZoomFromRange() {
+            const value = parseFloat(zoomRange.value);
+            if (!Number.isNaN(value)) setZoom(value);
+        }
         async function startCamera() {
             try {
                 stream = await navigator.mediaDevices.getUserMedia({ 
@@ -165,6 +226,17 @@
                 torchAvailable = !!caps.torch;
                 isTorchOn = false;
                 updateTorchButton();
+                zoomAvailable = !!caps.zoom;
+                if (zoomAvailable) {
+                    zoomMin = caps.zoom.min ?? 1;
+                    zoomMax = caps.zoom.max ?? 1;
+                    zoomStep = caps.zoom.step ?? 0.1;
+                    const settings = videoTrack.getSettings ? videoTrack.getSettings() : {};
+                    zoomValue = settings.zoom ?? zoomMin;
+                } else {
+                    zoomValue = 1;
+                }
+                updateZoomUI();
                 video.classList.remove('off');
                 scanRegion.classList.remove('off');
                 offMsg.style.display = 'none';
@@ -183,12 +255,14 @@
             isCameraOn = false;
             isTorchOn = false;
             videoTrack = null;
+            zoomAvailable = false;
             video.classList.add('off');
             scanRegion.classList.add('off');
             offMsg.style.display = 'block';
             toggleBtn.innerText = "Turn On";
             toggleBtn.classList.add('active');
             updateTorchButton();
+            updateZoomUI();
         }
         function toggleCamera() { if (isCameraOn) stopCamera(); else startCamera(); }
         function clearAll() { if(confirm('Delete history?')) { history = []; used = []; save(); } }
@@ -226,6 +300,7 @@
         }
         render();
         updateTorchButton();
+        updateZoomUI();
         startCamera();
         if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js'); }
     </script>
