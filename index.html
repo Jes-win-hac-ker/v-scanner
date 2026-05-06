@@ -31,6 +31,15 @@
         }
         .camera-toggle.active { background: var(--primary); border-color: var(--primary); }
 
+        .torch-toggle {
+            position: absolute; top: 15px; left: 15px;
+            background: rgba(0,0,0,0.5); color: white; border: 1.5px solid rgba(255,255,255,0.6);
+            padding: 8px 16px; border-radius: 20px; font-size: 0.8rem; font-weight: bold;
+            backdrop-filter: blur(10px); z-index: 200; box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+        }
+        .torch-toggle.active { background: var(--success); border-color: var(--success); }
+        .torch-toggle.disabled { opacity: 0.5; pointer-events: none; }
+
         #camera-off-msg { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #fff; font-size: 1.1rem; text-align: center; display: none; font-weight: bold; }
 
         /* SCROLLABLE HISTORY BOTTOM */
@@ -59,6 +68,7 @@
         <video id="video" playsinline></video>
         <div id="scan-region"></div>
         <div id="camera-off-msg">Camera is Off</div>
+        <button id="torch-btn" class="torch-toggle" onclick="toggleTorch()">Flash On</button>
         <button id="toggle-btn" class="camera-toggle" onclick="toggleCamera()">Turn Off</button>
     </div>
     <div id="history-panel">
@@ -76,13 +86,17 @@
         const list = document.getElementById('list');
         const countDisplay = document.getElementById('count');
         const toggleBtn = document.getElementById('toggle-btn');
+        const torchBtn = document.getElementById('torch-btn');
         const scanRegion = document.getElementById('scan-region');
         const offMsg = document.getElementById('camera-off-msg');
 
         let history = JSON.parse(localStorage.getItem('v-history') || '[]');
         let used = JSON.parse(localStorage.getItem('v-used') || '[]');
         let stream = null;
+        let videoTrack = null;
         let isCameraOn = false;
+        let isTorchOn = false;
+        let torchAvailable = false;
 
         function extract(t) { return t.split(/[/=?& _-]/).filter(x => x).pop() || t; }
         function save() {
@@ -113,6 +127,31 @@
                 setTimeout(() => toast.style.display = 'none', 2000);
             });
         }
+        function updateTorchButton() {
+            if (!torchAvailable) {
+                torchBtn.style.display = 'none';
+                return;
+            }
+            torchBtn.style.display = 'inline-block';
+            torchBtn.classList.toggle('active', isTorchOn);
+            torchBtn.classList.toggle('disabled', !isCameraOn);
+            torchBtn.innerText = isTorchOn ? 'Flash Off' : 'Flash On';
+        }
+        async function setTorch(state) {
+            if (!videoTrack || !torchAvailable) return;
+            try {
+                await videoTrack.applyConstraints({ advanced: [{ torch: state }] });
+                isTorchOn = state;
+            } catch (err) {
+                console.warn('Torch control failed', err);
+                isTorchOn = false;
+            }
+            updateTorchButton();
+        }
+        async function toggleTorch() {
+            if (!isCameraOn || !torchAvailable) return;
+            await setTorch(!isTorchOn);
+        }
         async function startCamera() {
             try {
                 stream = await navigator.mediaDevices.getUserMedia({ 
@@ -121,6 +160,11 @@
                 video.srcObject = stream;
                 video.play();
                 isCameraOn = true;
+                videoTrack = stream.getVideoTracks()[0] || null;
+                const caps = videoTrack && videoTrack.getCapabilities ? videoTrack.getCapabilities() : {};
+                torchAvailable = !!caps.torch;
+                isTorchOn = false;
+                updateTorchButton();
                 video.classList.remove('off');
                 scanRegion.classList.remove('off');
                 offMsg.style.display = 'none';
@@ -132,13 +176,19 @@
             }
         }
         function stopCamera() {
+            if (videoTrack && torchAvailable) {
+                try { videoTrack.applyConstraints({ advanced: [{ torch: false }] }); } catch (err) {}
+            }
             if (stream) { stream.getTracks().forEach(track => track.stop()); video.srcObject = null; }
             isCameraOn = false;
+            isTorchOn = false;
+            videoTrack = null;
             video.classList.add('off');
             scanRegion.classList.add('off');
             offMsg.style.display = 'block';
             toggleBtn.innerText = "Turn On";
             toggleBtn.classList.add('active');
+            updateTorchButton();
         }
         function toggleCamera() { if (isCameraOn) stopCamera(); else startCamera(); }
         function clearAll() { if(confirm('Delete history?')) { history = []; used = []; save(); } }
@@ -175,6 +225,7 @@
             requestAnimationFrame(tick);
         }
         render();
+        updateTorchButton();
         startCamera();
         if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js'); }
     </script>
